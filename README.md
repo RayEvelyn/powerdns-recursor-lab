@@ -1,5 +1,7 @@
 # PowerDNS Recursor: a private caching resolver for your home lab
 
+Start with [GitOps, the bootstrap order, and why the repos are separate](docs/START-HERE.md).
+
 Learn what happens after a laptop asks “where is this name?” This lab runs a private recursive resolver, demonstrates caching, validates public DNSSEC answers, and explains conditional forwarding to your own authoritative DNS.
 
 ## Why run a caching resolver?

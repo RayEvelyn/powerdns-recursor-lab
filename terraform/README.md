@@ -43,7 +43,7 @@ On your workstation, first trust the Proxmox CA using your operating system's ce
 ```bash
 export PROXMOX_VE_ENDPOINT='https://proxmox.example.test:8006/'
 read -r -s -p 'Proxmox token value: ' PROXMOX_TOKEN_VALUE; printf '\n'
-export PROXMOX_VE_API_TOKEN="terraform-lab@pve!tutorial=${PROXMOX_TOKEN_VALUE}"
+export PROXMOX_VE_API_TOKEN='terraform-lab@pve!tutorial='"${PROXMOX_TOKEN_VALUE}"
 unset PROXMOX_TOKEN_VALUE
 cp terraform.tfvars.example terraform.tfvars
 # Edit every sample value to match YOUR lab; the 192.0.2.0/24 network is documentation-only.
