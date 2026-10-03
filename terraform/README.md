@@ -15,7 +15,8 @@ Download the official Ubuntu cloud image from https://cloud-images.ubuntu.com/no
 sudo apt-get update
 sudo apt-get install -y libguestfs-tools
 cp noble-server-cloudimg-amd64.img noble-prepared.img
-sudo virt-customize -a noble-prepared.img --install qemu-guest-agent
+sudo virt-customize -a noble-prepared.img --install qemu-guest-agent \
+  --run-command 'rm -f /etc/ssh/ssh_host_*; cloud-init clean --logs --machine-id'
 # On Proxmox, after transfer, choosing an UNUSED template ID:
 bash create-template.sh 9000 local-lvm vmbr0 /var/tmp/noble-prepared.img
 ```
@@ -66,3 +67,5 @@ SSH to the `ssh_host` output as `ubuntu`, install Docker using the parent README
 Before deletion, stop workloads and preserve all data needed for recovery. Review `terraform plan -destroy` before `terraform destroy`. Never run destroy to fix a DNS typo.
 
 Official references: https://bpg.sh/docs/ and https://pve.proxmox.com/pve-docs/pve-admin-guide.html#chapter_user_management.
+
+Before using a template, verify each cloned guest generates distinct host keys. The CI provision phase intentionally precedes trusted host fingerprint retrieval/pinning; never bypass StrictHostKeyChecking. Backend state must use the persistent dedicated runner root described in the parent README.

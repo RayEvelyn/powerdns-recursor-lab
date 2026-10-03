@@ -139,3 +139,106 @@ Review and back up any persistent data before destroying a Proxmox VM. Do not de
 - [PowerDNS authoritative views](https://doc.powerdns.com/authoritative/views.html)
 
 See `VALIDATION.md` for observed local results. Tests on a developer workstation do not prove that your LAN ACLs, DNSSEC policy or Proxmox network are configured correctly.
+
+## Actual CI deployment: use your private deployment copy
+
+The public source is `https://github.com/RayEvelyn/powerdns-recursor-lab.git`. Public examples run **hosted validation only**. The deployment job is intentionally ineligible in the public repository. Clone the code, review it, and create your **own private** repository/project for access to a dedicated homelab runner:
+
+```bash
+git clone https://github.com/RayEvelyn/powerdns-recursor-lab.git
+cd powerdns-recursor-lab
+# Replace YOUR_ACCOUNT with your own account; preserve the upstream origin.
+gh repo create YOUR_ACCOUNT/powerdns-recursor-lab --private --source . --remote deployment --push
+```
+
+This includes a functional deployment path, not a claim that CI has deployed your lab already. The GitHub workflow requires an explicit `workflow_dispatch`, your private repository, its default branch, `DEPLOY_ENABLED=true`, runner labels `self-hosted,linux,homelab`, and environment `homelab`. Never attach a LAN-capable self-hosted runner to the public source repo. Configure protected branch/environment controls and restrict runner use to this private copy. Environment approval features depend on your GitHub plan; verify enforced behavior rather than assuming an environment name creates approval.
+
+### A persistent runner and explicit state ownership
+
+Use a dedicated persistent Linux runner with Terraform, Python3, OpenSSH tools, GNU `flock`, and network reachability to the intended lab host. State is not a CI cache or disposable workspace. Provision a private directory owned by the runner service account:
+
+```bash
+# On the dedicated runner; use its actual service account instead of homelab-runner.
+sudo install -d -m700 -o homelab-runner -g homelab-runner /var/lib/homelab-terraform
+```
+
+`TF_STATE_ROOT=/var/lib/homelab-terraform` and the private repository ID resolve to `/var/lib/homelab-terraform/<repository-id>/terraform.tfstate`. The local backend is explicit. A per-state `flock`, Terraform's local locking and CI per-repository concurrency serialize execution. This is **one persistent runner**, not a distributed locking design. Do not schedule the same state on multiple hosts. Back up this root independently; the helper preserves a timestamped private pre-apply state copy, which is not a substitute for off-host recovery. Never upload state or plans as public artifacts.
+
+The helper defaults to `plan`. It generates protected temporary inputs, validates, creates a saved plan, and rejects delete/replacement actions. `plan` exits without changing infrastructure. `provision` applies that exact plan and returns without SSH/bootstrap. `deploy` applies the exact plan, then uses an isolated SSH configuration to install/update the reviewed sample. No automatic destroy is included. Planned replacements require separate deliberate recovery review.
+
+### Configure inputs using CLI
+
+Define your target with nonsecret JSON in repository variable `HOMELAB_TFVARS_JSON`; do not put tokens, passwords or private keys there. For the DNS VM examples, use the fields from `terraform/terraform.tfvars.example`, omitting `ssh_public_key_path`: the helper writes the provided public key to a temporary file and supplies the path. For Cloudflare, use `zone_id`, `hostname`, and the **existing** `tunnel_id`. An API token is provider environment input, never a Terraform credential variable.
+
+```bash
+# Run against your private repository. Files below belong outside the public checkout.
+gh api --method PUT repos/YOUR_ACCOUNT/powerdns-recursor-lab/environments/homelab
+gh variable set TF_STATE_ROOT --repo YOUR_ACCOUNT/powerdns-recursor-lab --body /var/lib/homelab-terraform
+gh variable set HOMELAB_TFVARS_JSON --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/inputs.json
+# The public SSH key is not a secret; match the protected private key used for deployment.
+gh variable set SSH_PUBLIC_KEY --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/id_ed25519.pub
+gh secret set SSH_PRIVATE_KEY --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/id_ed25519
+gh secret set SSH_KNOWN_HOSTS --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/known_hosts
+# Enable only after reviewing runner placement, inputs and permission boundaries.
+gh variable set DEPLOY_ENABLED --repo YOUR_ACCOUNT/powerdns-recursor-lab --body true
+gh workflow run homelab.yml --repo YOUR_ACCOUNT/powerdns-recursor-lab -f action=plan
+```
+
+Secret commands read stdin; credential values are not command-line arguments. Disable shell tracing and avoid logged terminals when handling secrets. Do not echo credentials for troubleshooting. Keep an independently verified host-key file rather than trusting an unauthenticated `ssh-keyscan` result.
+
+DNS Terraform also needs `PROXMOX_VE_ENDPOINT` as a variable, `PROXMOX_VE_API_TOKEN` as a secret, and optionally `PROXMOX_CA_PEM` as a secret containing your trusted CA. Example input commands:
+
+```bash
+gh variable set PROXMOX_VE_ENDPOINT --repo YOUR_ACCOUNT/powerdns-recursor-lab --body https://proxmox.example.test:8006/
+gh secret set PROXMOX_VE_API_TOKEN --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/proxmox-token
+gh secret set PROXMOX_CA_PEM --repo YOUR_ACCOUNT/powerdns-recursor-lab < /secure/local/proxmox-ca.pem
+```
+
+The optional CA is appended to the platform trust bundle and used through `SSL_CERT_FILE`; TLS verification stays enabled. Grant only intended lab permissions. SSH uses `SSH_PRIVATE_KEY` and preverified `SSH_KNOWN_HOSTS` in a mode600 temporary configuration. Every invocation explicitly passes `-F "$HOMELAB_SSH_CONFIG"`; no existing user SSH settings or hooks are replaced. The target user defaults to `ubuntu`, port22, and must have the intended passwordless `sudo` authority for this disposable guest. This is broad guest administration, not a production least-privilege deployment identity.
+
+### Provision first; pin a unique guest host key; then deploy
+
+For a new Proxmox guest, run `action=provision` before `action=deploy`. Provision needs only the public SSH key, Terraform inputs and provider credential; known-host keys are not required yet. The output identifies the static guest address. Use your trusted Proxmox CLI/guest-agent path to read the **new guest's** public host key and verify its fingerprint, then place that exact key in `SSH_KNOWN_HOSTS`. For example, on the trusted Proxmox node:
+
+```bash
+qm guest exec YOUR_VM_ID -- cat /etc/ssh/ssh_host_ed25519_key.pub
+# Compare its fingerprint through your trusted administration path, then privately
+# store "GUEST_IP ssh-ed25519 PUBLIC_KEY" in known_hosts (nondefault ports use [IP]:PORT).
+```
+
+Never clone host private keys into multiple VMs. Prepare templates with guest-agent installed, remove template host keys and clean cloud-init identity before converting to a template; ensure each clone generates fresh host keys. A login public key identifies the deploy user; it is different from the server host key. Host-key failures are not fixed by disabling verification.
+
+The DNS deploy phase bootstraps Docker inside the new Linux guest, uploads only reviewed Compose/config/zone/helper files, preserves previous release configuration under `/var/backups/homelab/powerdns-recursor-lab/`, and starts the new release under `/opt/homelab/powerdns-recursor-lab/releases/`. No existing user configuration is replaced. Container data and host backups still require your separate backup policy. No firewall is disabled.
+
+### Real DNS clients need a deliberate listener and ACL
+
+The hosted/local demo stays loopback/high-port. For actual DNS deployment, set nonsecret variable `DNS_BIND_IP` to the guest's **specific intended IPv4 LAN address**; deployment exposes TCP/UDP53 on that address. `DNS_ALLOWED_CIDRS` is required for the Recursor and is a comma-separated list of explicitly trusted client CIDRs. `0.0.0.0/0` and `::/0` are refused. The helper supports an IPv4 listener; design and test IPv6 separately instead of claiming it is configured.
+
+```bash
+gh variable set DNS_BIND_IP --repo YOUR_ACCOUNT/powerdns-recursor-lab --body YOUR_GUEST_LAN_IP
+# Recursor only: replace with your narrow intended client networks.
+gh variable set DNS_ALLOWED_CIDRS --repo YOUR_ACCOUNT/powerdns-recursor-lab --body YOUR_TRUSTED_CIDR
+gh workflow run homelab.yml --repo YOUR_ACCOUNT/powerdns-recursor-lab -f action=provision
+# Pin independently verified guest keys, then:
+gh workflow run homelab.yml --repo YOUR_ACCOUNT/powerdns-recursor-lab -f action=deploy
+```
+
+The application sees the translated Docker bridge source in some paths; the deployed Recursor also permits its dedicated bridge. That does not prove every original client is authorized. Enforce allowed/denied client networks at your router/firewall and test from both. Authoritative DNS should be restricted to your intended internal resolver clients. The helper does not automatically set router ACLs, change DHCP client DNS, expose WAN services, or prove Proxmox network isolation. Those are explicit acceptance checks.
+
+### Existing bare-metal or VM target
+
+The same workload upload is available through `scripts/deploy-existing-host.sh` for a dedicated Linux host without Terraform provisioning. Supply the isolated `HOMELAB_SSH_CONFIG`, runtime directory and deployment inputs exactly as the CI helper does. It requires the same preverified keys, sudo authority and network policy. Review `scripts/deploy-local.py` before running it directly on the intended host; never on a Proxmox hypervisor. Package installation and container restart are actual changes.
+
+### GitLab option
+
+The included `.gitlab-ci.yml` runs hosted/shared validation and exposes a **manual** homelab job only for a private project, protected default branch and `DEPLOY_ENABLED=true`. Register a dedicated Linux runner tagged `homelab`, assign protected variables/secrets with the same names, and protect the `homelab` environment as your GitLab plan supports. It invokes the same helpers. Default `HOMELAB_ACTION=plan`; deliberately select `provision` or `deploy` only after reviewing the previous stage. Do not attach this runner to untrusted forks or public pipelines.
+
+Repository/runner access controls and token permissions are part of your lab setup; example YAML cannot enforce a router policy or your hosting account's approval settings by itself.
+
+For a complete existing-host command path, load `SSH_PRIVATE_KEY` and `SSH_KNOWN_HOSTS` from your protected local secret facility, set `HOMELAB_SSH_HOST` (and DNS binding/ACL variables for the DNS repos), then run:
+
+```bash
+bash scripts/deploy-bare-metal.sh
+```
+
+This creates its own temporary isolated SSH files and performs the reviewed guest deployment, with no Terraform apply or VM creation. The existing host must be dedicated to this lab and already have the intended network segmentation and unique host keys. It installs packages and restarts only the named example workload; inspect the helper before using it on a host with existing services.
