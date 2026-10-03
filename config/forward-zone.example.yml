@@ -1,0 +1,8 @@
+# MERGE into the existing recursor section; do not duplicate YAML keys.
+recursor:
+  forward_zones:
+    - zone: home.arpa
+      forwarders: [192.0.2.53:53]
+# Example address only: replace with your internal authoritative server.
+# RD=0 is appropriate for an authoritative server.
+# Use forward_zones_recurse ONLY when forwarding to another recursive resolver.

@@ -1,0 +1,15 @@
+services:
+  recursor:
+    image: powerdns/pdns-recursor-53:5.3.11@sha256:1f5aabe2edea4f5c7cd34364390aea6cc38faa0c59698df7ba258bc42d3e0316
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/sbin/pdns_recursor"]
+    command: ["--config-dir=/etc/powerdns", "--daemon=no", "--disable-syslog=yes"]
+    ports: ["127.0.0.1:15355:53/udp", "127.0.0.1:15355:53/tcp"]
+    volumes:
+      - ./config/recursor.yml:/etc/powerdns/recursor.yml:ro
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.53.0/24
