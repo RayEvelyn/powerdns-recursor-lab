@@ -4,6 +4,26 @@ Start with [GitOps, the bootstrap order, and why the repos are separate](docs/ST
 
 Learn what happens after a laptop asks “where is this name?” This lab runs a private recursive resolver, demonstrates caching, validates public DNSSEC answers, and explains conditional forwarding to your own authoritative DNS.
 
+
+## Capacity and reachability before deployment
+
+The checked-in VM input uses **2 vCPU and 2 GiB RAM**; the template helper expands its disk to **80 GiB**. Plan space for both template and clone, snapshots and backups. For learning DNS behavior on a smaller machine, start with the local Docker loopback/high-port demo; it does not require a Proxmox VM or serve LAN clients by default.
+
+**No GPU is required** for this DNS, Kubernetes, Rancher, telemetry or tunnel lesson. AI inference is a separate optional workload: model size, precision, context and concurrency determine RAM/VRAM requirements; these examples do not reserve or promise that capacity. Account separately for the chosen runner, GitLab if self-hosted, host OS and existing services. Check `free -h`, `df -h`, and Proxmox `pvesm status`/`pvesh get /nodes/YOUR_NODE/status` on the actual intended machines. On an existing cluster compare allocatable and requested resources with `kubectl describe nodes` and storage/PVC inventory before adding LGTM.
+
+| Initiator | Destination and port | Purpose / when needed |
+| --- | --- | --- |
+| Workstation | Selected GitHub or GitLab HTTPS 443 (or configured trusted local TLS port) | Clone, CLI API and pipeline control; not a substitute for runner network reach |
+| Dedicated selected runner | Proxmox TLS API TCP 8006 | VM Terraform path only; trust its CA, keep management outside DMZ |
+| Dedicated selected runner | Intended guest TCP 22 | Reviewed SSH/bootstrap paths; pin unique host keys |
+| Runner / guests | Approved package and container registries TCP 443 | Downloads; add only repository-specific approved HTTP 80 sources if required |
+| Workload runner | Intended Kubernetes TLS API TCP 6443, or configured KAS TLS route | Manifest/Helm paths only; scoped credentials and verified TLS |
+| Trusted LAN DNS clients | Intended DNS server UDP and TCP 53 | DNS paths only; deliberate listener and narrow ACL/firewall, not demo high ports |
+| DMZ tunnel host | Cloudflare UDP/TCP 7844 and approved HTTPS 443 | Cloudflare connector/install path only; no inbound router forward |
+
+A hosted GitHub validation runner has **no assumed route to your private LAN**. Configure only the selected private execution runner with necessary routes, DNS and firewall permissions. Keep DMZ-to-LAN/admin denial intact; tunnel connectivity alone does not segment your network. Test the selected route from the actual runner with TLS-verifying `curl`, pinned-key SSH and the README runtime commands before deploying, rather than opening management broadly.
+
+
 ## Why run a caching resolver?
 
 Your devices need someone to find DNS answers. PowerDNS **Recursor** performs that job. It remembers valid answers until their time-to-live (TTL) expires, which reduces repeated upstream queries and often reduces lookup latency. It also gives your lab one place to control internal forwarding and observe resolver health.
@@ -139,6 +159,17 @@ Review and back up any persistent data before destroying a Proxmox VM. Do not de
 - [PowerDNS authoritative views](https://doc.powerdns.com/authoritative/views.html)
 
 See `VALIDATION.md` for observed local results. Tests on a developer workstation do not prove that your LAN ACLs, DNSSEC policy or Proxmox network are configured correctly.
+
+## Choose one CI provider before configuring deployment
+
+GitHub and GitLab are **alternative complete paths**. [CI-PATHS.md](CI-PATHS.md) provides the runner setup, GitLab CLI inputs and job controls alongside the GitHub commands below. Choose one owner for each lab. A source-control server stores code and schedules jobs; the selected **runner machine** executes Terraform, SSH, Ansible or Helm and needs the documented network access. Cloning this repository does not install a runner or create a route to Proxmox.
+
+| Choice | Source and job scheduler | Execution machine | Kubernetes access |
+| --- | --- | --- | --- |
+| GitHub | Your private GitHub repository and Actions | Your dedicated self-hosted Linux runner | Scoped kubeconfig where needed; GitLab/KAS not required |
+| GitLab | Your private GitLab project and GitLab CI | Your dedicated protected GitLab Linux runner | Scoped kubeconfig; GitLab agent/KAS is an optional separately configured route |
+
+The public upstream runs unprivileged hosted validation only. A local GitLab is useful if you want to host your own source and scheduler, but is **not** a prerequisite for the GitHub path. KAS does not provision VMs and is not a general-purpose Terraform runner.
 
 ## Actual CI deployment: use your private deployment copy
 

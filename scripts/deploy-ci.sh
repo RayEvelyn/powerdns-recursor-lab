@@ -66,7 +66,7 @@ else
 fi
 python3 scripts/prepare-ssh.py "$target"
 ready=false
-for attempt in $(seq 1 36); do
+for _attempt in $(seq 1 36); do
  if ssh -F "$HOMELAB_SSH_CONFIG" homelab true 2>/dev/null; then ready=true; break; fi
  sleep 5
 done

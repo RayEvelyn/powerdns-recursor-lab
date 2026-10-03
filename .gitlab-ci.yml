@@ -1,12 +1,13 @@
 stages: [validate, deploy]
 validate:
   stage: validate
+  tags: [validation]
   image:
-    name: hashicorp/terraform:1.13.5
+    name: hashicorp/terraform:1.16.4
     entrypoint: [""]
   script:
     - terraform -chdir=terraform fmt -check
-    - terraform -chdir=terraform init -backend=false -input=false
+    - terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
     - terraform -chdir=terraform validate
 homelab:
   stage: deploy
@@ -15,7 +16,7 @@ homelab:
   environment: homelab
   variables:
     HOMELAB_KIND: recursor
-    HOMELAB_REPOSITORY_ID: "gitlab-$CI_PROJECT_ID"
+    HOMELAB_REPOSITORY_ID: "gitlab-$CI_PROJECT_ID" # Override only for explicit existing-state adoption.
     HOMELAB_ACTION: plan
   rules:
     - if: '$DEPLOY_ENABLED == "true" && $CI_PROJECT_VISIBILITY == "private" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
