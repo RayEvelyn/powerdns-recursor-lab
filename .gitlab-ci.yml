@@ -15,7 +15,7 @@ homelab:
   environment: homelab
   variables:
     HOMELAB_KIND: recursor
-    HOMELAB_REPOSITORY_ID: $CI_PROJECT_ID
+    HOMELAB_REPOSITORY_ID: "gitlab-$CI_PROJECT_ID"
     HOMELAB_ACTION: plan
   rules:
     - if: '$DEPLOY_ENABLED == "true" && $CI_PROJECT_VISIBILITY == "private" && $CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'

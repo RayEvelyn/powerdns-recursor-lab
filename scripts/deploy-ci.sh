@@ -14,7 +14,7 @@ if [[ "$HOMELAB_ACTION" == deploy ]]; then
  : "${SSH_PRIVATE_KEY:?}"
  : "${SSH_KNOWN_HOSTS:?Preverified host keys required}"
 fi
-[[ "$HOMELAB_REPOSITORY_ID" =~ ^[a-zA-Z0-9_-]+$ ]] || exit 2
+[[ "$HOMELAB_REPOSITORY_ID" =~ ^(github|gitlab)-[0-9]+$ ]] || exit 2
 [[ "$TF_STATE_ROOT" == /* && "$TF_STATE_ROOT" != /tmp* && "$TF_STATE_ROOT" != /var/tmp* ]] || { echo 'State root must be persistent, not temporary.' >&2; exit 2; }
 command -v flock >/dev/null
 umask 077
@@ -33,7 +33,10 @@ unset SSH_PRIVATE_KEY SSH_KNOWN_HOSTS PROXMOX_CA_PEM
 python3 - "$state_dir" "$PWD" <<'PATHCHECK'
 from pathlib import Path
 import sys
+import os
 state,workspace=map(lambda x:Path(x).resolve(),sys.argv[1:])
+runner_temp=Path(os.environ.get("RUNNER_TEMP","/tmp")).resolve()
+if state==runner_temp or runner_temp in state.parents:sys.exit("State must be outside RUNNER_TEMP")
 if state==workspace or workspace in state.parents:sys.exit('State must be outside checkout/workspace')
 PATHCHECK
 if [[ -s "$HOMELAB_RUNTIME_DIR/ca.pem" ]]; then export SSL_CERT_FILE="$HOMELAB_RUNTIME_DIR/ca.pem"; fi

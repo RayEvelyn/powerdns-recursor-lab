@@ -14,19 +14,19 @@ permissions:
   contents: read
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.13.5"
+          terraform_version: "1.16.4"
           terraform_wrapper: false
       - name: Validate only; no secrets, apply, or self-hosted access
         run: |
           terraform -chdir=terraform fmt -check
-          terraform -chdir=terraform init -backend=false -input=false
+          terraform -chdir=terraform init -backend=false -input=false -lockfile=readonly
           terraform -chdir=terraform validate
           python3 -m py_compile scripts/*.py
           for script in scripts/*.sh; do bash -n "$script"; done
@@ -46,7 +46,7 @@ jobs:
     env:
       HOMELAB_ACTION: ${{ inputs.action }}
       HOMELAB_KIND: recursor
-      HOMELAB_REPOSITORY_ID: ${{ github.repository_id }}
+      HOMELAB_REPOSITORY_ID: github-${{ github.repository_id }}
       TF_STATE_ROOT: ${{ vars.TF_STATE_ROOT }}
       HOMELAB_TFVARS_JSON: ${{ vars.HOMELAB_TFVARS_JSON }}
       PROXMOX_VE_ENDPOINT: ${{ vars.PROXMOX_VE_ENDPOINT }}
@@ -67,6 +67,6 @@ jobs:
           persist-credentials: false
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
         with:
-          terraform_version: "1.13.5"
+          terraform_version: "1.16.4"
           terraform_wrapper: false
       - run: bash scripts/deploy-ci.sh
